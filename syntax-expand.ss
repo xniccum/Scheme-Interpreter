@@ -3,15 +3,21 @@
     [lambda-exp (id body) (lambda-exp id (map syntax-expand body))]
     [let-exp (args args-exp body) (let-exp args (map syntax-expand args-exp) (map syntax-expand body))]
     [letrec-exp (proc-names args bodies letrec-body) (letrec-exp proc-names args (map (lambda (x) (map syntax-expand x)) bodies) (map syntax-expand letrec-body))]
+    [named-let-exp (name args args-exp body) (syntax-expand (parse-exp (handle-named-let (unparse-exp exp))))]
     [if-else-exp (test-exp true-exp else-exp) (if-else-exp (syntax-expand test-exp) (syntax-expand true-exp) (syntax-expand else-exp))]
     [if-exp (test-exp true-exp) (if-exp (syntax-expand test-exp) (syntax-expand true-exp))]
     [set-exp (var exp) (set-exp var (syntax-expand exp))]
+    [define-exp (var exp) (define-exp var (syntax-expand exp))]
     [app-exp (rator rand) (handle-app-exp exp)]
     [while-exp (count body) exp]
     [var-exp (id) exp]
     [lit-exp (id) exp]
   )
 )
+
+(define (handle-named-let exp) (list 'letrec (list (list (2nd exp) (make-lambda exp))) (cons (2nd exp) (map 2nd (3rd exp)))))
+
+(define (make-lambda exp) (append (list 'lambda (map 1st (3rd exp))) (cdddr exp)))
 
 (define handle-app-exp
   (lambda (exp)

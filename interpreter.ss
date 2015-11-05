@@ -1,5 +1,12 @@
-; top-level-eval evaluates a form in the global environment
+; (define (apply-k k val)
+;   (cases k continuation
+;     [rator-k (rands env k) (eval-rands rands env (rands-k val k))]
+;     [rands-k (proc-val k) (apply-proc proc-val val k)]
+;     [test-k (true-exp else-exp env k) ]
+;   )
+; )
 
+; top-level-eval evaluates a form in the global environment
 (define top-level-eval
   (lambda (form)
     ; later we may add things that are not expressions.
@@ -8,19 +15,26 @@
 ; eval-exp is the main component of the interpreter
 
 (define eval-exp
-  (lambda (exp env)
+  ;(lambda (exp env k)
+   (lambda (exp env)
     (cases expression exp
+      ;[lit-exp (datum) (appky-k k datum)]
       [lit-exp (datum) datum]
       [var-exp (id)
-				(apply-env env id; look up its value.
-           (lambda (x) x) ; procedure to call if id is in the environment
-           (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
-		          "variable not found in environment: ~s"
-			   id)))]
+				(apply-env env id); look up its value.
+           ;k ; procedure to call if id is in the environment
+           ;(lambda (x) x)
+           ;(lambda () (eopl:error 'apply-env ; procedure to call if id not in env
+		          ;"variable not found in environment: ~s"
+			   ;id
+         ;)
+        ;))
+      ]
       [if-else-exp (test-exp true-exp else-exp) (if (eval-exp test-exp env) (eval-exp true-exp env) (eval-exp else-exp env))]
       [if-exp (test-exp true-exp) (if (eval-exp test-exp env) (eval-exp true-exp env))]
       [app-exp (rator rands)
-        (let ([proc-value (eval-exp rator env)]
+        (let ;([proc-value (eval-exp rator env (rator-k rands env k))]
+             ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
           (apply-proc proc-value args env))]
       [let-exp (args args-exp body)
@@ -31,7 +45,9 @@
         (let ([new-env (extend-env-recursively proc-names args bodies env)])
           (eval-bodies letrec-body new-env)
         )]
-      [lambda-exp (id body) (list (quote closure) id body env)]
+      ;[lambda-exp (id body) (apply-k k (closure id body env))]
+      [lambda-exp (id body) 
+          (closure id body env)]
       [while-exp (test body)
         ;(let [(test-results (eval-exp test env))]
           (if (eval-exp test env)
@@ -41,6 +57,16 @@
             )
           ;)
         )]
+      [set-exp (var exp) (set-ref! (apply-env-ref (deref env) (eval-exp var env)) (eval-exp exp env))]
+      [define-exp (var exp)
+        (let* (
+          [var-to-define (eval-exp var env)]
+          [exp-to-define (eval-exp exp env)]
+          [apply-env-ref-result (apply-env-ref (deref init-env) var-to-define)])
+          (if (deref apply-env-ref-result)
+            (set-ref! apply-env-ref-result exp-to-define)
+              (alter-init-env var-to-define exp-to-define)
+          ))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)]
     )))
 
@@ -59,8 +85,6 @@
     (map (lambda (x) (eval-exp x env)) rands)))
 
 ;  Apply a procedure to its arguments.
-;  At this point, we only have primitive procedures.
-;  User-defined procedures will be added later.
 (define apply-proc
   (lambda (proc-value args env)
     (cases proc-val proc-value
@@ -78,7 +102,8 @@
     car caar caaar cdr cddr cdddr cadr cdar caddr cadar caadr cdaar cdadr cdadr
     list null? assaq eq? equal? atom? length list->vector list? pair? procedure?
     vector->list vector make-vector vector-ref vector? number? symbol? set-car! set-cdr!
-    vector-set! display newline void map apply iota eqv? member quotient))
+    vector-set! display newline void map apply iota eqv? member quotient list-tail quit
+    append))
 
 (define init-env         ; for now, our initial global environment only contains
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -86,6 +111,17 @@
      (map prim-proc
           *prim-proc-names*)
      (empty-env)))
+
+(define reset-global-env
+  (lambda ()
+    (set! init-env         
+      (extend-env         
+       *prim-proc-names* 
+       (map prim-proc
+            *prim-proc-names*)
+       (empty-env)))
+  )
+)
 
 ; Usually an interpreter must define each
 ; built-in procedure individually.  We are "cheating" a little bit.
@@ -426,6 +462,28 @@
           [else (member (1st args) (2nd args))]
         )
       ]
+      [(list-tail)
+        (cond
+          [(not (= arg-count 2)) (eopl:error prim-proc "incorrect argument count")]
+          [(not (list? (1st args))) (eopl:error prim-proc "Argument-1 is not a list")]
+          [(not (number? (2nd args))) (eopl:error prim-proc "Argument-2 is not a number")]
+          [else (list-tail (1st args) (2nd args))]
+        )
+      ]
+      [(quit)
+        (cond
+          [(not (= arg-count 0)) (eopl:error prim-proc "incorrect argument count")]
+          [else '(quit)]
+        )
+      ]
+      [(append)
+        (cond
+          [(not (= arg-count 2)) (eopl:error prim-proc "incorrect argument count")]
+          [(not (list? (1st args))) (eopl:error prim-proc "Argument-1 is not a list")]
+          [(not (list? (2nd args))) (eopl:error prim-proc "Argument-2 is not a list")]
+          [else (append (1st args) (2nd args))]
+        )
+      ]
       [else (error 'apply-prim-proc
             "Bad primitive procedure name: ~s"
             prim-op)])))
@@ -436,11 +494,11 @@
     ;; notice that we don't save changes to the environment...
     (let ([answer (top-level-eval (syntax-expand (parse-exp (read))))])
       (cond
-        [(eqv? (void) answer) (newline)]
-        [else (eopl:pretty-print answer)]
+        [(equal? '(quit) answer) (newline)]
+        [(equal? (void) answer) (newline) (rep)]
+        [else (eopl:pretty-print answer) (rep)]
       )
     )
-    (rep) ; tail-recursive, so stack doesn't grow.
   )
 )
 
